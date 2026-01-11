@@ -15,6 +15,9 @@ urlpatterns = [
     path("hospital/shared-profiles/", hospital_shared_profiles),
     path("patient/shared-profiles/", patient_shared_profiles),
     path("share-profile/<str:shared_id>/", delete_shared_profile),
+    path("patient/fhir-profiles/", patient_fhir_profiles),
+    path("loan/apply/", apply_for_loan),
+    path("loan/provider/analytics/", loan_provider_analytics),
 
     
 
