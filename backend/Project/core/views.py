@@ -436,18 +436,6 @@ def share_profile(request):
         {"message": "Profile shared and converted to FHIR successfully"},
         status=201
     )
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def hospital_shared_profiles(request):
-    org = organizations_col.find_one({"email": request.user.email})
-
-    profiles = list(shared_profiles_col.find(
-        {"organization_id": org["organization_id"]},
-        {"_id": 0}
-    ))
-
-    return Response(profiles)
-
 
 import uuid
 from datetime import datetime
@@ -605,182 +593,125 @@ def suggested_amount(required, risk):
         return int(required * 0.7)
     if risk == "High":
         return int(required * 0.4)
-    return 0   
-
-
-
-
+    return 0
 # -----------------------
-# Apply for Loan (Patient)
+# Loan Provider Dashboard
 # -----------------------
-
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def apply_for_loan(request):
-    patient = patients_col.find_one({"email": request.user.email})
-    if not patient:
-        return Response({"error": "Patient not found"}, status=404)
-
-    data = request.data
-    risk, score = calculate_risk_score(data)
-
-    # Status Mapping
-    if risk == "HIGH":
-        status = "Rejected"
-    elif risk == "LOW":
-        status = "Approved"
-    else:
-        status = "Pending"
-
-    loan_doc = {
-        "loan_id": f"LOAN-{uuid.uuid4().hex[:6].upper()}",
-        "patient_id": patient["patient_id"],
-        "patient_name": f"{patient['first_name']} {patient['last_name']}",
-        "age": int(data.get("age", 0)),
-        "loan_purpose": data.get("loan_purpose"),
-        "medical_reason": data.get("medical_reason"),
-        "treatment_type": data.get("treatment_type"),
-        "phone": data.get("phone"),
-        "preferred_tenure": int(data.get("preferred_tenure")),
-        "hospital_name": data.get("hospital_name"),
-        "hospital_location": data.get("hospital_location"),
-        "required_amount": int(data.get("required_amount")),
-        "monthly_income": int(data.get("monthly_income", 0)),
-        "insurance_available": data.get("insurance_available") or data.get("existing_insurance"),
-        "existing_loans": data.get("existing_loans"),
-        "loan_provider_id": data.get("loan_provider_id") or data.get("loan_provider"),
-        "risk": risk,
-        "risk_score": score,
-        "status": status,
-        "created_at": datetime.utcnow()
-    }
-
-    # Revised Plan for Medium Risk
-    if risk == "MEDIUM":
-        loan_doc["revised_amount"] = int(int(data.get("required_amount")) * 0.8)
-        loan_doc["revised_tenure"] = int(data.get("preferred_tenure")) + 12
-
-    loan_requests_col.insert_one(loan_doc)
-    return Response({"message": "Loan request submitted", "loan_id": loan_doc["loan_id"], "status": status}, status=201)
-
-
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def respond_to_loan_plan(request):
-    data = request.data
-    loan_id = data.get("loan_id")
-    action = data.get("action") # "Accept" or "Reject"
-
-    if not loan_id or not action:
-        return Response({"error": "loan_id and action required"}, status=400)
-
-    loan = loan_requests_col.find_one({"loan_id": loan_id})
-    if not loan:
-        return Response({"error": "Loan not found"}, status=404)
-
-    if action == "Accept":
-        status = "Approved"
-        # If accepted, we update the amount and tenure to the revised ones
-        loan_requests_col.update_one(
-            {"loan_id": loan_id},
-            {"$set": {
-                "status": status,
-                "required_amount": loan.get("revised_amount", loan["required_amount"]),
-                "preferred_tenure": loan.get("revised_tenure", loan["preferred_tenure"]),
-                "approved_at": datetime.utcnow()
-            }}
-        )
-    else:
-        status = "Rejected"
-        loan_requests_col.update_one(
-            {"loan_id": loan_id},
-            {"$set": {"status": status, "rejected_at": datetime.utcnow()}}
-        )
-
-    msg_suffix = "accepted" if action == "Accept" else "rejected"
-    return Response({"message": f"Loan plan {msg_suffix} successfully", "status": status})
-
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
-def loan_provider_analytics(request):
+def loan_provider_requests(request):
     provider = loan_providers_col.find_one({"email": request.user.email})
     if not provider:
         return Response({"error": "Unauthorized"}, status=403)
 
-    provider_id = provider["loan_provider_id"]
-    base_query = {"loan_provider_id": provider_id}
-    
-    # 1. Basic Counts
-    total_apps = loan_requests_col.count_documents(base_query)
-    approved_apps = loan_requests_col.count_documents({**base_query, "status": "Approved"})
-    rejected_apps = loan_requests_col.count_documents({**base_query, "status": "Rejected"})
-    pending_apps = loan_requests_col.count_documents({**base_query, "status": "Pending"})
-    
-    approval_rate = (approved_apps / total_apps * 100) if total_apps > 0 else 0
-    
-    # 2. Risk Distribution
-    risk_dist = {
-        "low": loan_requests_col.count_documents({**base_query, "risk": "LOW"}),
-        "medium": loan_requests_col.count_documents({**base_query, "risk": "MEDIUM"}),
-        "high": loan_requests_col.count_documents({**base_query, "risk": "HIGH"}),
-    }
-    
-    # 3. Residence Distribution
-    residence_dist = {
-        "urban": loan_requests_col.count_documents({**base_query, "hospital_location": "Urban"}),
-        "rural": loan_requests_col.count_documents({**base_query, "hospital_location": "Rural"}),
-    }
+    loans = list(loan_requests_col.find(
+        {"loan_provider_id": provider["loan_provider_id"]},
+        {
+            "_id": 0,
+            "loan_id": 1,
+            "patient_name": 1,
+            "required_amount": 1,
+            "risk": 1,
+            "risk_score": 1,
+            "loan_purpose": 1,
+            "status": 1,
+            "created_at": 1
+        }
+    ))
 
-    # 4. Portfolio Health (Aggregated by Risk)
-    portfolio_health = []
-    for risk in ["LOW", "MEDIUM", "HIGH"]:
-        portfolio_health.append({
-            "_id": risk.capitalize(),
-            "approved": loan_requests_col.count_documents({**base_query, "risk": risk, "status": "Approved"}),
-            "pending": loan_requests_col.count_documents({**base_query, "risk": risk, "status": "Pending"}),
-            "rejected": loan_requests_col.count_documents({**base_query, "risk": risk, "status": "Rejected"}),
-        })
+    return Response(loans)
 
-    # 5. Tenure Distribution
-    tenure_counts = loan_requests_col.aggregate([
-        {"$match": base_query},
-        {"$group": {"_id": "$preferred_tenure", "count": {"$sum": 1}}},
-        {"$sort": {"_id": 1}}
-    ])
-    tenure_dist = [{"tenure": str(t["_id"]) + " M", "count": t["count"]} for t in tenure_counts]
 
-    # 6. Submission Trend (Last 7 days)
-    # Using a simple approach for trend
-    trend_counts = loan_requests_col.aggregate([
-        {"$match": base_query},
-        {"$group": {
-            "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
-            "count": {"$sum": 1}
-        }},
-        {"$sort": {"_id": 1}},
-        {"$limit": 7}
-    ])
-    submission_trend = [{"date": t["_id"], "count": t["count"]} for t in trend_counts]
+# -----------------------
+# Loan Detail + Suggested Amount
+# -----------------------
 
-    # 7. Demographics (Age segments)
-    demographics = [
-        {"range": "18-30", "count": loan_requests_col.count_documents({**base_query, "age": {"$gte": 18, "$lte": 30}})},
-        {"range": "31-45", "count": loan_requests_col.count_documents({**base_query, "age": {"$gte": 31, "$lte": 45}})},
-        {"range": "46-60", "count": loan_requests_col.count_documents({**base_query, "age": {"$gte": 46, "$lte": 60}})},
-        {"range": "60+", "count": loan_requests_col.count_documents({**base_query, "age": {"$gt": 60}})},
-    ]
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def loan_detail(request, loan_id):
+    provider = loan_providers_col.find_one({"email": request.user.email})
+    loan = loan_requests_col.find_one(
+        {"loan_id": loan_id, "loan_provider_id": provider["loan_provider_id"]},
+        {"_id": 0}
+    )
 
-    return Response({
-        "total": total_apps,
-        "approved": approved_apps,
-        "rejected": rejected_apps,
-        "pending": pending_apps,
-        "approval_rate": round(approval_rate, 1),
-        "risk_dist": risk_dist,
-        "residence_dist": residence_dist,
-        "portfolio_health": portfolio_health,
-        "tenure_dist": tenure_dist,
-        "submission_trend": submission_trend,
-        "demographics": demographics
-    })
+    if not loan:
+        return Response({"error": "Loan not found"}, status=404)
+
+    loan["suggested_amount"] = suggested_amount(
+        loan["required_amount"], loan["risk"]
+    )
+
+    return Response(loan)
+
+
+# -----------------------
+# Approve / Reject Loan
+# -----------------------
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def update_loan_status(request):
+    provider = loan_providers_col.find_one({"email": request.user.email})
+    if not provider:
+        return Response({"error": "Unauthorized"}, status=403)
+
+    loan_id = request.data.get("loan_id")
+    status_value = request.data.get("status")
+    approved_amount = int(request.data.get("approved_amount", 0))
+
+    loan = loan_requests_col.find_one(
+        {"loan_id": loan_id, "loan_provider_id": provider["loan_provider_id"]}
+    )
+
+    if not loan:
+        return Response({"error": "Loan not found"}, status=404)
+
+    if status_value == "Approved":
+        if approved_amount <= 0 or approved_amount > loan["required_amount"]:
+            return Response({"error": "Invalid approved amount"}, status=400)
+
+        loan_requests_col.update_one(
+            {"loan_id": loan_id},
+            {"$set": {
+                "status": "Approved",
+                "approved_amount": approved_amount,
+                "approved_by": provider["loan_provider_id"],
+                "approved_at": datetime.utcnow()
+            }}
+        )
+
+    elif status_value == "Rejected":
+        loan_requests_col.update_one(
+            {"loan_id": loan_id},
+            {"$set": {
+                "status": "Rejected",
+                "rejected_by": provider["loan_provider_id"],
+                "rejected_at": datetime.utcnow()
+            }}
+        )
+
+    else:
+        return Response({"error": "Invalid status"}, status=400)
+
+    return Response({"message": f"Loan {status_value}"})
+
+
+# -----------------------
+# Patient Loan Status
+# -----------------------
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def patient_loans(request):
+    patient = patients_col.find_one({"email": request.user.email})
+    if not patient:
+        return Response({"error": "Patient not found"}, status=404)
+
+    loans = list(loan_requests_col.find(
+        {"patient_id": patient["patient_id"]},
+        {"_id": 0}
+    ))
+
+    return Response(loans)       
