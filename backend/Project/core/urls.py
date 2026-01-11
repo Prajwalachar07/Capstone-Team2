@@ -7,6 +7,10 @@ from .views import apply_for_loan, get_profile,build_fhir_patient, delete_shared
 urlpatterns = [
     path("auth/register/", register),
     path("auth/login/", login),
+    path("profile/", get_profile),
+    path("profile/update/", update_profile),
+    path("share-profile/", share_profile),
+    path("recipients/", get_recipients),
 
     
 
