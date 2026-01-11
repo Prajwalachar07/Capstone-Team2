@@ -715,3 +715,17 @@ def patient_loans(request):
     ))
 
     return Response(loans)       
+
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def hospital_shared_profiles(request):
+    org = organizations_col.find_one({"email": request.user.email})
+
+    profiles = list(shared_profiles_col.find(
+        {"organization_id": org["organization_id"]},
+        {"_id": 0}
+    ))
+
+    return Response(profiles)
