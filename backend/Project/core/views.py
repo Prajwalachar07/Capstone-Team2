@@ -197,3 +197,121 @@ def login(request):
         "email": user.email
     })
 
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_profile(request):
+    email = request.user.email
+    role = request.user.role
+
+    col = patients_col if role == "patient" else practitioners_col if role == "doctor" else organizations_col
+    profile = col.find_one({"email": email}, {"_id": 0})
+
+    return Response(profile or {"email": email, "profile_completed": False})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def update_profile(request):
+    email = request.user.email
+    role = request.user.role
+    data = request.data
+
+    first_name = data.get("first_name") or data.get("firstName")
+    last_name = data.get("last_name") or data.get("lastName")
+
+    col = patients_col if role == "patient" else practitioners_col if role == "doctor" else organizations_col
+
+    col.update_one(
+        {"email": email},
+        {"$set": {
+            "first_name": first_name,
+            "last_name": last_name,
+            "phone": data.get("phone"),
+            "dob": data.get("dob"),
+            "gender": data.get("gender"),
+            "address": data.get("address"),
+            "city": data.get("city"),
+            "state": data.get("state"),
+            "zip": data.get("zip"),
+            "profile_completed": True,
+            "updated_at": datetime.utcnow()
+        }},
+        upsert=True
+    )
+
+    return Response({"message": "Profile updated successfully"})
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def patient_shared_profiles(request):
+    user = request.user
+
+    patient = patients_col.find_one({"email": user.email})
+    if not patient:
+        return Response({"message": "Patient not found"}, status=404)
+
+    profiles = list(shared_profiles_col.find(
+        {"patient_id": patient["patient_id"]},
+        {"_id": 0}
+    ))
+
+    return Response(profiles)
+
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def patient_fhir_profiles(request):
+    user = request.user
+
+    # ---------- PATIENT ----------
+    if user.role == "patient":
+        patient = patients_col.find_one({"email": user.email})
+        if not patient:
+            return Response({"error": "Patient not found"}, status=404)
+
+        fhir_docs = list(fhir_patients_col.find(
+            {"patient_id": patient["patient_id"]},
+            {"_id": 0}
+        ))
+        return Response(fhir_docs)
+
+    # ---------- DOCTOR ----------
+    elif user.role == "doctor":
+        doctor = practitioners_col.find_one({"email": user.email})
+        if not doctor:
+            return Response({"error": "Doctor not found"}, status=404)
+
+        shared_ids = [
+            s["shared_id"] for s in shared_profiles_col.find(
+                {"practitioner_id": doctor["practitioner_id"]}
+            )
+        ]
+
+        fhir_docs = list(fhir_patients_col.find(
+            {"shared_id": {"$in": shared_ids}},
+            {"_id": 0}
+        ))
+        return Response(fhir_docs)
+
+    # ---------- HOSPITAL ----------
+    elif user.role == "hospital":
+        org = organizations_col.find_one({"email": user.email})
+        if not org:
+            return Response({"error": "Hospital not found"}, status=404)
+
+        shared_ids = [
+            s["shared_id"] for s in shared_profiles_col.find(
+                {"organization_id": org["organization_id"]}
+            )
+        ]
+
+        fhir_docs = list(fhir_patients_col.find(
+            {"shared_id": {"$in": shared_ids}},
+            {"_id": 0}
+        ))
+        return Response(fhir_docs)
+
+    else:
+        return Response({"error": "Not authorized"}, status=403)
