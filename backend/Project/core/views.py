@@ -315,3 +315,37 @@ def patient_fhir_profiles(request):
 
     else:
         return Response({"error": "Not authorized"}, status=403)
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def delete_shared_profile(request, shared_id):
+    user = request.user
+
+    # Ensure only the patient who created it can delete it
+    profile = shared_profiles_col.find_one({"shared_id": shared_id})
+
+    if not profile:
+        return Response({"error": "Shared profile not found"}, status=404)
+
+    if profile["patient_email"] != user.email:
+        return Response({"error": "Not allowed"}, status=403)
+
+    # Delete from shared profiles
+    shared_profiles_col.delete_one({"shared_id": shared_id})
+
+    # Delete from FHIR collection (if exists)
+    fhir_patients_col.delete_one({"shared_id": shared_id})
+
+    return Response({"message": "Shared profile deleted successfully"}, status=200)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def doctor_shared_profiles(request):
+    doc = practitioners_col.find_one({"email": request.user.email})
+
+    profiles = list(shared_profiles_col.find(
+        {"practitioner_id": doc["practitioner_id"]},
+        {"_id": 0}
+    ))
+
+    return Response(profiles)
