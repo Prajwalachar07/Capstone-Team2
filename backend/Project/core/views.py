@@ -436,3 +436,173 @@ def share_profile(request):
         {"message": "Profile shared and converted to FHIR successfully"},
         status=201
     )
+ @api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def hospital_shared_profiles(request):
+    org = organizations_col.find_one({"email": request.user.email})
+
+    profiles = list(shared_profiles_col.find(
+        {"organization_id": org["organization_id"]},
+        {"_id": 0}
+    ))
+
+    return Response(profiles)
+
+
+import uuid
+from datetime import datetime
+
+def build_fhir_patient(patient, practitioner, organization, visit_reason):
+    patient_fhir_id = f"pat-{uuid.uuid4()}"
+
+    bundle = {
+        "resourceType": "Bundle",
+        "type": "collection",
+        "entry": []
+    }
+
+    # 1️⃣ Patient
+    patient_resource = {
+        "resourceType": "Patient",
+        "id": patient_fhir_id,
+        "name": [{
+            "family": patient.get("last_name"),
+            "given": [patient.get("first_name")]
+        }],
+        "gender": patient.get("gender"),
+        "birthDate": str(patient.get("dob")),
+        "telecom": [{
+            "system": "phone",
+            "value": patient.get("phone")
+        }] if patient.get("phone") else [],
+        "address": [{
+            "city": patient.get("city"),
+            "state": patient.get("state"),
+            "postalCode": patient.get("zip"),
+            "country": "India"
+        }]
+    }
+
+    bundle["entry"].append({"resource": patient_resource})
+
+    # 2️⃣ Known Allergies (only if provided)
+    allergies = patient.get("allergies") or []
+    if isinstance(allergies, str):
+        allergies = [a.strip() for a in allergies.split(",") if a.strip()]
+
+    for allergy in allergies:
+        allergy_resource = {
+            "resourceType": "AllergyIntolerance",
+            "patient": {"reference": f"Patient/{patient_fhir_id}"},
+            "code": {"text": allergy}
+        }
+        bundle["entry"].append({"resource": allergy_resource})
+
+    # 3️⃣ Blood Group Observation
+    if patient.get("blood_group"):
+        blood_resource = {
+            "resourceType": "Observation",
+            "status": "final",
+            "code": {"text": "Blood group"},
+            "subject": {"reference": f"Patient/{patient_fhir_id}"},
+            "valueCodeableConcept": {"text": patient.get("blood_group")}
+        }
+        bundle["entry"].append({"resource": blood_resource})
+
+    # 4️⃣ Visit Reason Observation
+    if visit_reason:
+        visit_resource = {
+            "resourceType": "Observation",
+            "status": "final",
+            "code": {"text": "Visit Reason"},
+            "subject": {"reference": f"Patient/{patient_fhir_id}"},
+            "valueString": visit_reason
+        }
+        bundle["entry"].append({"resource": visit_resource})
+
+    return bundle
+
+
+
+
+
+
+
+
+# =======================
+# LOAN MANAGEMENT MODULE
+# =======================
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from datetime import datetime
+import uuid
+
+from .db import (
+    loan_requests_col,
+    loan_providers_col,
+    patients_col
+)
+
+# -----------------------
+# Risk Calculation Engine
+# -----------------------
+
+def calculate_risk_score(data):
+    score = 0
+
+    required_amount = int(data.get("required_amount", 0))
+    income = int(data.get("monthly_income", 0))
+    tenure = int(data.get("preferred_tenure", 1)) # avoid div by zero
+
+    # EMI Calculation
+    emi = required_amount / tenure
+
+    # Income vs Loan Amount (EMI)
+    if emi > income * 0.5:
+        score += 40
+    elif emi > income * 0.3:
+        score += 20
+
+    # Existing Loans
+    if data.get("existing_loans") == "yes":
+        score += 20
+
+    # Insurance
+    if data.get("insurance_available") == "no" or data.get("existing_insurance") == "no":
+        score += 15
+
+    # Tenure
+    if tenure >= 36:
+        score += 20
+    elif tenure >= 24:
+        score += 10
+
+    # Treatment Type
+    treatment = data.get("treatment_type", "").lower()
+    if any(word in treatment for word in ["surgery", "emergency", "dialysis"]):
+        score += 15
+    else:
+        score += 5
+
+    # Final Risk Decision
+    if score > 60:
+        return "HIGH", score
+    elif score > 30:
+        return "MEDIUM", score
+    else:
+        return "LOW", score
+
+
+# -----------------------
+# Suggested Amount Logic
+# -----------------------
+
+def suggested_amount(required, risk):
+    if risk == "Low":
+        return required
+    if risk == "Medium":
+        return int(required * 0.7)
+    if risk == "High":
+        return int(required * 0.4)
+    return 0   
