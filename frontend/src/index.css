@@ -1,0 +1,160 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* -------------------------
+   BASE STYLES (FOUNDATION)
+--------------------------*/
+@layer base {
+  body {
+    font-family: 'Roboto', sans-serif;
+    @apply antialiased bg-slate-50 text-slate-700;
+  }
+
+  /* Headings: darker + stronger */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply text-slate-900 tracking-tight;
+  }
+
+  h1 {
+    @apply text-3xl font-bold;
+  }
+
+  h2 {
+    @apply text-2xl font-semibold;
+  }
+
+  h3 {
+    @apply text-xl font-semibold;
+  }
+
+  h4 {
+    @apply text-lg font-medium;
+  }
+
+  p {
+    @apply text-sm text-slate-600 leading-relaxed;
+  }
+
+  label {
+    @apply text-sm font-medium text-slate-700;
+  }
+}
+
+/* -------------------------
+   COMPONENT STYLES
+--------------------------*/
+@layer components {
+
+  /* Cards */
+  .card {
+    @apply bg-white rounded-2xl border border-slate-200 shadow-sm
+           transition-all duration-300 ease-out;
+  }
+
+  .card:hover {
+    @apply shadow-md -translate-y-0.5;
+  }
+
+  .card-header {
+    @apply px-6 py-4 border-b border-slate-100 bg-white;
+  }
+
+  .card-body {
+    @apply p-6;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    @apply inline-flex items-center justify-center
+           rounded-lg bg-indigo-600 px-4 py-2
+           text-sm font-medium text-white
+           shadow-sm transition-all duration-200
+           hover:bg-indigo-700 hover:shadow-md
+           active:scale-95 disabled:opacity-60;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center
+           rounded-lg bg-slate-100 px-4 py-2
+           text-sm font-medium text-slate-800
+           transition-all duration-200
+           hover:bg-slate-200;
+  }
+
+  /* Inputs */
+  .input-base {
+    @apply w-full rounded-lg border border-slate-300
+           bg-white px-3 py-2 text-sm text-slate-800
+           placeholder-slate-400
+           transition-all duration-200
+           focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100
+           outline-none;
+  }
+
+  /* Select */
+  .select-base {
+    @apply w-full rounded-lg border border-slate-300
+           bg-white px-3 py-2 text-sm text-slate-800
+           transition-all duration-200
+           focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100
+           outline-none;
+  }
+
+  /* Section titles */
+  .section-title {
+    @apply text-lg font-semibold text-slate-900;
+  }
+
+  .section-subtitle {
+    @apply text-sm text-slate-500;
+  }
+
+  /* Badges / pills */
+  .badge {
+    @apply inline-flex items-center rounded-full
+           bg-indigo-50 px-3 py-1
+           text-xs font-medium text-indigo-700;
+  }
+}
+
+/* -------------------------
+   UTILITIES (ANIMATIONS)
+--------------------------*/
+@layer utilities {
+  .fade-in {
+    animation: fadeIn 0.4s ease-out forwards;
+  }
+
+  .slide-up {
+    animation: slideUp 0.4s ease-out forwards;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
