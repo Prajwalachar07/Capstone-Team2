@@ -197,89 +197,155 @@ def login(request):
         "email": user.email
     })
 
-@api_view(["GET"])
-# @permission_classes([IsAuthenticated])
-def get_recipients(request):
-    doctors = list(practitioners_col.find({}, {"_id": 0, "practitioner_id": 1, "first_name": 1, "last_name": 1}))
-    hospitals = list(organizations_col.find({}, {"_id": 0, "organization_id": 1, "name": 1}))
-    loan_providers = list(loan_providers_col.find({}, {"_id": 0, "loan_provider_id": 1, "name": 1}))
 
-    return Response({
-        "doctors": doctors,
-        "hospitals": hospitals,
-        "loan_providers": loan_providers
-    })
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_profile(request):
+    email = request.user.email
+    role = request.user.role
+
+    col = patients_col if role == "patient" else practitioners_col if role == "doctor" else organizations_col
+    profile = col.find_one({"email": email}, {"_id": 0})
+
+    return Response(profile or {"email": email, "profile_completed": False})
+
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def share_profile(request):
+def update_profile(request):
+    email = request.user.email
+    role = request.user.role
     data = request.data
+
+    first_name = data.get("first_name") or data.get("firstName")
+    last_name = data.get("last_name") or data.get("lastName")
+
+    col = patients_col if role == "patient" else practitioners_col if role == "doctor" else organizations_col
+
+    col.update_one(
+        {"email": email},
+        {"$set": {
+            "first_name": first_name,
+            "last_name": last_name,
+            "phone": data.get("phone"),
+            "dob": data.get("dob"),
+            "gender": data.get("gender"),
+            "address": data.get("address"),
+            "city": data.get("city"),
+            "state": data.get("state"),
+            "zip": data.get("zip"),
+            "profile_completed": True,
+            "updated_at": datetime.utcnow()
+        }},
+        upsert=True
+    )
+
+    return Response({"message": "Profile updated successfully"})
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def patient_shared_profiles(request):
     user = request.user
 
     patient = patients_col.find_one({"email": user.email})
     if not patient:
         return Response({"message": "Patient not found"}, status=404)
 
-    shared_id = f"SHARE-{random.randint(100000,999999)}"
+    profiles = list(shared_profiles_col.find(
+        {"patient_id": patient["patient_id"]},
+        {"_id": 0}
+    ))
 
-    shared_doc = {
-        "shared_id": shared_id,
-        "patient_email": user.email,
-        "patient_id": patient["patient_id"],
-        "patient_name": patient["first_name"],
-        "gender": patient.get("gender"),
-        "dob": patient.get("dob"),
-        "phone": patient.get("phone"),
-        "address": patient.get("address"),
-        "city": patient.get("city"),
+    return Response(profiles)
 
-        "blood_group": data.get("blood_group"),
-        "allergies": data.get("allergies"),
-        "illness_reason": data.get("illness_reason"),
 
-        "organization_id": data.get("organization_id"),
-        "practitioner_id": data.get("practitioner_id"),
 
-        # 🔑 NEW FLAG
-        "fhir_converted": False,
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def patient_fhir_profiles(request):
+    user = request.user
 
-        "shared_at": datetime.utcnow()
-    }
+    # ---------- PATIENT ----------
+    if user.role == "patient":
+        patient = patients_col.find_one({"email": user.email})
+        if not patient:
+            return Response({"error": "Patient not found"}, status=404)
 
-    # 1️⃣ Save shared profile
-    shared_profiles_col.insert_one(shared_doc)
+        fhir_docs = list(fhir_patients_col.find(
+            {"patient_id": patient["patient_id"]},
+            {"_id": 0}
+        ))
+        return Response(fhir_docs)
 
-    # 2️⃣ Fetch doctor & hospital
-    practitioner = practitioners_col.find_one(
-        {"practitioner_id": data.get("practitioner_id")}
-    )
-    organization = organizations_col.find_one(
-        {"organization_id": data.get("organization_id")}
-    )
+    # ---------- DOCTOR ----------
+    elif user.role == "doctor":
+        doctor = practitioners_col.find_one({"email": user.email})
+        if not doctor:
+            return Response({"error": "Doctor not found"}, status=404)
 
-    # 3️⃣ Convert to FHIR automatically
-    fhir_patient = build_fhir_patient(
-        patient,
-        practitioner,
-        organization,
-        data.get("illness_reason")
-    )
+        shared_ids = [
+            s["shared_id"] for s in shared_profiles_col.find(
+                {"practitioner_id": doctor["practitioner_id"]}
+            )
+        ]
 
-    # 4️⃣ Store FHIR resource
-    fhir_patients_col.insert_one({
-        "shared_id": shared_id,
-        "patient_id": patient["patient_id"],
-        "fhir_resource": fhir_patient,
-        "created_at": datetime.utcnow()
-    })
+        fhir_docs = list(fhir_patients_col.find(
+            {"shared_id": {"$in": shared_ids}},
+            {"_id": 0}
+        ))
+        return Response(fhir_docs)
 
-    # 5️⃣ Mark conversion as done
-    shared_profiles_col.update_one(
-        {"shared_id": shared_id},
-        {"$set": {"fhir_converted": True}}
-    )
+    # ---------- HOSPITAL ----------
+    elif user.role == "hospital":
+        org = organizations_col.find_one({"email": user.email})
+        if not org:
+            return Response({"error": "Hospital not found"}, status=404)
 
-    return Response(
-        {"message": "Profile shared and converted to FHIR successfully"},
-        status=201
-    )    
+        shared_ids = [
+            s["shared_id"] for s in shared_profiles_col.find(
+                {"organization_id": org["organization_id"]}
+            )
+        ]
+
+        fhir_docs = list(fhir_patients_col.find(
+            {"shared_id": {"$in": shared_ids}},
+            {"_id": 0}
+        ))
+        return Response(fhir_docs)
+
+    else:
+        return Response({"error": "Not authorized"}, status=403)
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def delete_shared_profile(request, shared_id):
+    user = request.user
+
+    # Ensure only the patient who created it can delete it
+    profile = shared_profiles_col.find_one({"shared_id": shared_id})
+
+    if not profile:
+        return Response({"error": "Shared profile not found"}, status=404)
+
+    if profile["patient_email"] != user.email:
+        return Response({"error": "Not allowed"}, status=403)
+
+    # Delete from shared profiles
+    shared_profiles_col.delete_one({"shared_id": shared_id})
+
+    # Delete from FHIR collection (if exists)
+    fhir_patients_col.delete_one({"shared_id": shared_id})
+
+    return Response({"message": "Shared profile deleted successfully"}, status=200)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def doctor_shared_profiles(request):
+    doc = practitioners_col.find_one({"email": request.user.email})
+
+    profiles = list(shared_profiles_col.find(
+        {"practitioner_id": doc["practitioner_id"]},
+        {"_id": 0}
+    ))
+
+    return Response(profiles)
