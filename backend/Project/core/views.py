@@ -349,3 +349,90 @@ def doctor_shared_profiles(request):
     ))
 
     return Response(profiles)
+
+
+@api_view(["GET"])
+# @permission_classes([IsAuthenticated])
+def get_recipients(request):
+    doctors = list(practitioners_col.find({}, {"_id": 0, "practitioner_id": 1, "first_name": 1, "last_name": 1}))
+    hospitals = list(organizations_col.find({}, {"_id": 0, "organization_id": 1, "name": 1}))
+    loan_providers = list(loan_providers_col.find({}, {"_id": 0, "loan_provider_id": 1, "name": 1}))
+
+    return Response({
+        "doctors": doctors,
+        "hospitals": hospitals,
+        "loan_providers": loan_providers
+    })
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def share_profile(request):
+    data = request.data
+    user = request.user
+
+    patient = patients_col.find_one({"email": user.email})
+    if not patient:
+        return Response({"message": "Patient not found"}, status=404)
+
+    shared_id = f"SHARE-{random.randint(100000,999999)}"
+
+    shared_doc = {
+        "shared_id": shared_id,
+        "patient_email": user.email,
+        "patient_id": patient["patient_id"],
+        "patient_name": patient["first_name"],
+        "gender": patient.get("gender"),
+        "dob": patient.get("dob"),
+        "phone": patient.get("phone"),
+        "address": patient.get("address"),
+        "city": patient.get("city"),
+
+        "blood_group": data.get("blood_group"),
+        "allergies": data.get("allergies"),
+        "illness_reason": data.get("illness_reason"),
+
+        "organization_id": data.get("organization_id"),
+        "practitioner_id": data.get("practitioner_id"),
+
+        # 🔑 NEW FLAG
+        "fhir_converted": False,
+
+        "shared_at": datetime.utcnow()
+    }
+
+    # 1️⃣ Save shared profile
+    shared_profiles_col.insert_one(shared_doc)
+
+    # 2️⃣ Fetch doctor & hospital
+    practitioner = practitioners_col.find_one(
+        {"practitioner_id": data.get("practitioner_id")}
+    )
+    organization = organizations_col.find_one(
+        {"organization_id": data.get("organization_id")}
+    )
+
+    # 3️⃣ Convert to FHIR automatically
+    fhir_patient = build_fhir_patient(
+        patient,
+        practitioner,
+        organization,
+        data.get("illness_reason")
+    )
+
+    # 4️⃣ Store FHIR resource
+    fhir_patients_col.insert_one({
+        "shared_id": shared_id,
+        "patient_id": patient["patient_id"],
+        "fhir_resource": fhir_patient,
+        "created_at": datetime.utcnow()
+    })
+
+    # 5️⃣ Mark conversion as done
+    shared_profiles_col.update_one(
+        {"shared_id": shared_id},
+        {"$set": {"fhir_converted": True}}
+    )
+
+    return Response(
+        {"message": "Profile shared and converted to FHIR successfully"},
+        status=201
+    )

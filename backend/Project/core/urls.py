@@ -11,6 +11,10 @@ urlpatterns = [
     path("profile/update/", update_profile),
     path("share-profile/", share_profile),
     path("recipients/", get_recipients),
+    path("doctor/shared-profiles/", doctor_shared_profiles),
+    path("hospital/shared-profiles/", hospital_shared_profiles),
+    path("patient/shared-profiles/", patient_shared_profiles),
+    path("share-profile/<str:shared_id>/", delete_shared_profile),
 
     
 
