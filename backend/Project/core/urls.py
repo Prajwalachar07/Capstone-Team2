@@ -18,6 +18,11 @@ urlpatterns = [
     path("patient/fhir-profiles/", patient_fhir_profiles),
     path("loan/apply/", apply_for_loan),
     path("loan/provider/analytics/", loan_provider_analytics),
+    path("loan/provider/requests/", loan_provider_requests),
+    path("loan/provider/<str:loan_id>/", loan_detail),
+    path("loan/provider/update/", update_loan_status),
+    path("loan/patient/", patient_loans),
+    path("loan/patient/respond/", respond_to_loan_plan),
 
     
 
