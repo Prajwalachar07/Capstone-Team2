@@ -1,11 +1,21 @@
 from pymongo import MongoClient
+from dotenv import load_dotenv
+import os
+from pathlib import Path
 
-client = MongoClient("mongodb://localhost:27017/")
-db = client.healthcare
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(BASE_DIR / ".env")
+client = MongoClient(os.getenv("MONGO_URI"))
+db = client[os.getenv("MONGO_DB_NAME")]
+
+# client = MongoClient("mongodb://localhost:27017/")
+# db = client.healthcare
 
 # Core collections
 patients_col = db.patients
 practitioners_col = db.practitioners
+
+
 organizations_col = db.organizations
 shared_profiles_col = db.shared_profiles
 

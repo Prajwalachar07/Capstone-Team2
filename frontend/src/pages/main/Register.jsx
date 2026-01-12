@@ -4,6 +4,8 @@ import Input from "../../components/ui/Input";
 import Button from "../../components/ui/Button";
 import Select from "../../components/ui/Select";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
 const Register = () => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
@@ -15,7 +17,7 @@ const Register = () => {
 
     const [formData, setFormData] = useState({
         role: roleFromUrl,
-        firstName: "",
+        firstName: "",   
         lastName: "",
         specialization: "",
         hospital_id: "",
@@ -28,19 +30,17 @@ const Register = () => {
     // Fetch hospitals when role is doctor
     useEffect(() => {
         if (formData.role === "doctor") {
-            fetch("http://localhost:8000/api/recipients/")
+            fetch(`${API_BASE_URL}/recipients/`)
                 .then((res) => res.json())
                 .then((data) => setHospitals(data.hospitals || []))
                 .catch(() => setHospitals([]));
         }
     }, [formData.role]);
 
-    // For INPUT fields
     const handleChange = (e) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
-    // ✅ For SELECT components
     const handleSelectChange = (name, value) => {
         setFormData((prev) => ({
             ...prev,
@@ -48,7 +48,6 @@ const Register = () => {
         }));
     };
 
-    console.log(formData);
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
@@ -59,10 +58,13 @@ const Register = () => {
             return;
         }
 
-        // Password complexity validation
-        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+        const passwordRegex =
+            /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+
         if (!passwordRegex.test(formData.password)) {
-            alert("Password must be at least 8 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&).");
+            alert(
+                "Password must be at least 8 characters long and include uppercase, lowercase, number & special character."
+            );
             setLoading(false);
             return;
         }
@@ -79,14 +81,14 @@ const Register = () => {
             payload.first_name = formData.firstName;
             payload.last_name = formData.lastName;
             payload.specialization = formData.specialization;
-            payload.hospital_id = formData.hospital_id; // ✅ now works
+            payload.hospital_id = formData.hospital_id;
         } else {
             payload.first_name = formData.firstName;
             payload.last_name = formData.lastName;
         }
 
         try {
-            const res = await fetch("http://localhost:8000/api/auth/register/", {
+            const res = await fetch(`${API_BASE_URL}/auth/register/`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
@@ -110,8 +112,6 @@ const Register = () => {
                 <h2 className="text-2xl text-center mb-4">Create Account</h2>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
-
-                    {/* ROLE (READ ONLY) */}
                     <Select
                         label="Who I Am"
                         value={formData.role}
@@ -124,7 +124,6 @@ const Register = () => {
                         ]}
                     />
 
-                    {/* NAME */}
                     <Input
                         label={
                             formData.role === "hospital" || formData.role === "loan_provider"
@@ -145,7 +144,6 @@ const Register = () => {
                         required
                     />
 
-                    {/* LAST NAME */}
                     {formData.role !== "hospital" && formData.role !== "loan_provider" && (
                         <Input
                             label="Last Name"
@@ -156,7 +154,6 @@ const Register = () => {
                         />
                     )}
 
-                    {/* DOCTOR EXTRA FIELDS */}
                     {formData.role === "doctor" && (
                         <>
                             <Input
